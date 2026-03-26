@@ -1,141 +1,339 @@
-# Лабораторная работа 2. Нечеткая логика. Вариант №15
+# Лабораторная работа 3. Базы знаний и онтологии. Вариант №15
 ## Задание
-Необходимо разработать скрипт, позволяющий выполнить операцию объединения заданных пользователем нечетких множеств с трапецевидными функциями принадлежности. Входными данными будут параметры функций принадлежности и четкие объекты для каждого из множеств. Выходными – объединение данных нечетких множеств.
+Необходимо разработать программу на языке python, которая реализует систему управления для автоматизации заданного технического объекта. Для хранения базы правил и онтологии предметной области используется SQLite. Задание предполагает проектирование логической модели управления, построение и настройку правил управления, а также разработку симулятора для проверки работы системы управления. Для формирования условий срабатывания правил необходимо использовать фаззификацию на основе нечеткой логики, для формирования управляющих инструкций - дефаззификацию. Также необходимо разработать минимально рабочий симулятор предметной области с дискретным программным управлением.
 
 Вариант задания:
-Оценка качества работы сотрудников
-Производительность: низкая, средняя, высокая, отличная
-Профессиональные навыки: начинающий, средний, опытный, эксперт
+Управление вентиляцией в автомобильном туннеле: Создать систему для контроля воздуха и удаления выхлопных газов в зависимости от количества транспорта.
 
 
-## 1) Разработка программы, реализующей нечеткую логику.
-Нечеткая логика (Fuzzy Logic) — это раздел математики, обобщающий классическую логику и теорию множеств, который оперирует понятием "степени истинности" (от 0 до 1), а не только бинарными значениями "истина/ложь" (0 или 1).
+## 1) Разработка программы, реализующую систему контроля воздуха. 
+База знаний — база данных, содержащая правила вывода и информацию о человеческом опыте и знаниях в некоторой предметной области. 
 
-Функция принадлежности — это инструмент нечеткой логики, сопоставляющий каждому элементу универсального множества степень его принадлежности к нечеткому множеству, выраженную числом в интервале [0,1].
-Для трапецевидной функции:
-a - левая граница (где значение = 0)
-b - начало плато (где значение = 1)
-c - конец плато (где значение = 1)
-d - правая граница (где значение = 0)
-
-Лингвистическая переменная (терм) — это переменная, значениями которой являются слова или фразы естественного языка (например, "высокая", "низкая", "средняя"), а не числа. Она используется для моделирования сложных процессов, где точные количественные данные недоступны, описывая их с помощью качественных характеристик.
-
-Фаззификация – преобразование исходных числовых физических величин в распределения, соответствующие термам лингвистической переменной. 
-
-Основные операции над нечеткими множествами (объединение, пересечение, дополнение) определяются поэлементно через функции принадлежности, обобщая классические множества.
+Онтология — формализованное описание предметной области, включающее набор понятий (классов), их свойств и связей, машиночитаемую структуру данных, позволяющую искусственному интеллекту понимать контекст.
 
 ```
-import numpy as np
-import matplotlib.pyplot as plt
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS ventilation_rules (
+        id INTEGER PRIMARY KEY,
+        condition TEXT,
+        action TEXT,
+        priority INTEGER
+    )
+    """)
+    c.execute("DELETE FROM ventilation_rules")
+    rules = [
+        ("air_quality < 40 and fans_speed < 80", "fans_speed = min(100, fans_speed + 25)", 1),
+        ("vehicle_count > 10 and fans_speed < 70", "fans_speed = min(100, fans_speed + 20)", 2),
+        ("air_quality < 60 and vehicle_count > 5 and fans_speed < 60", "fans_speed = min(100, fans_speed + 15)", 3),
+        ("air_quality < 70 and fans_speed < 50", "fans_speed = min(100, fans_speed + 10)", 4),
+        ("vehicle_count < 3 and air_quality > 70", "fans_speed = max(0, fans_speed - 35)", 10),
+        ("vehicle_count == 0", "fans_speed = max(0, fans_speed - 50)", 11),
+        ("air_quality > 80 and fans_speed > 20", "fans_speed = max(20, fans_speed - 25)", 9),
+        ("air_quality > 75 and vehicle_count < 5", "fans_speed = max(15, fans_speed - 30)", 8),
+        ("air_quality > 73 and fans_speed > 30", "fans_speed = max(30, fans_speed - 15)", 7),
+    ]
+    c.executemany("INSERT INTO ventilation_rules(condition, action, priority) VALUES (?, ?, ?)", rules)
+    conn.commit()
+    conn.close()
+```
+Для управления системы в БД задается список правил, который представляет собой набор эвристических правил для управления скоростью вентиляторов в туннеле. Каждое из них состоит из 3 частей: условие срабатывания (логическое выражение), действие (выполняется при срабатывании правила), приоритет (чем меньше число, тем выше приоритет). С помощью правил система понимает, когда стоит увеличивать/уменьшать скорость работы вентиляторов. Для разрешения конфликтов используется приоритет.
 
-def trapmf(x, a, b, c, d):
-    """Трапециевидная функция принадлежности"""
-    result = np.zeros_like(x, dtype=float)
-    
-    for i, val in enumerate(x):
-        if val < a:
-            result[i] = 0
-        elif a <= val < b:
-            if b - a != 0:
-                result[i] = (val - a) / (b - a)
-            else:
-                result[i] = 1
-        elif b <= val <= c:
-            result[i] = 1
-        elif c < val <= d:
-            if d - c != 0:
-                result[i] = (d - val) / (d - c)
-            else:
-                result[i] = 0
+```
+# Список правил вентиляции
+    rules = [
+        # Правило 1: низкое качество воздуха и скорость вентиляторов <80 (это правило с наивысшим приоритетом, так как плохое качество воздуха критично для безопасности)
+        ("air_quality < 40 and fans_speed < 80", "fans_speed = min(100, fans_speed + 25)", 1),
+
+        # Правило 2: много машин и низкая скорость вентиляторов (много машин означает много выхлопных газов. Второй приоритет, так как много машин не так критично, как уже плохое качество воздуха, но все же требует реакции)
+        ("vehicle_count > 10 and fans_speed < 70", "fans_speed = min(100, fans_speed + 20)", 2),
+
+        # Правило 3: средние показатели (cитуация, когда и качество уже ухудшается, и машин достаточно много, но не критично. Средний приоритет)
+        ("air_quality < 60 and vehicle_count > 5 and fans_speed < 60", "fans_speed = min(100, fans_speed + 15)", 3),
+
+        # Правило 4: ухудшение качества (при первых признаках ухудшения качества включаем вентиляцию чуть сильнее)
+        ("air_quality < 70 and fans_speed < 50", "fans_speed = min(100, fans_speed + 10)", 4),
+
+        # Правило 5: мало машин и хорошее качество - снижаем скорость (когда ситуация безопасна, экономим энергию, снижая скорость вентиляторов)
+        ("vehicle_count < 3 and air_quality > 70", "fans_speed = max(0, fans_speed - 35)", 10),
+
+        # Правило 6: нет машин - сильно снижаем скорость (если в туннеле совсем нет машин, нет смысла работать вентиляции на полную мощность. Резкое снижение для экономии энергии)
+        ("vehicle_count == 0", "fans_speed = max(0, fans_speed - 50)", 11),
+
+        # Правило 7: хорошее качество, но вентиляторы работают - снижаем (отличное качество требует снижения вентиляции, но нужно оставить минимальную скорость 20% для поддержания циркуляции)
+        ("air_quality > 80 and fans_speed > 20", "fans_speed = max(20, fans_speed - 25)", 9),
+
+        # Правило 8: качество хорошее, мало машин - снижаем (ситуация, когда и качество хорошее, и машин мало - можно значительно снизить скорость)
+        ("air_quality > 75 and vehicle_count < 5", "fans_speed = max(15, fans_speed - 30)", 8),
+
+        # Правило 9: качество выше среднего - умеренное снижение (плавное снижение скорости при стабильно хорошем качестве)
+        ("air_quality > 73 and fans_speed > 30", "fans_speed = max(30, fans_speed - 15)", 7),
+    ]
+```
+
+Симуляция — это воспроизведение реального процесса технической системой. Симуляция представляет собой туннель, в котором, в случайном порядке, появляются машины. Раз в шаг система управления проверяет количество машин и использует соответствующее правило.
+
+```
+class TunnelVentilationApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Система управления вентиляцией туннеля")
+        self.canvas = tk.Canvas(root, width=CELL_SIZE * TUNNEL_WIDTH, height=CELL_SIZE * TUNNEL_HEIGHT)
+        self.canvas.pack(side="left")
+
+        control_frame = tk.Frame(root)
+        control_frame.pack(side="right", fill="y")
+
+        self.log_text = tk.Text(control_frame, width=50, height=15)
+        self.log_text.pack(fill="both", expand=True)
+
+        self.info_label = tk.Label(control_frame, text="", font=("Arial", 10))
+        self.info_label.pack(pady=5)
+
+        init_db()
+        self.vehicles = []
+        self.create_initial_vehicles()
+
+        self.air_quality = 45
+        self.fans_speed = 35
+        self.vehicle_count = len(self.vehicles)
+        self.step_count = 0
+
+        self.step_button = tk.Button(control_frame, text="Следующий шаг", command=self.step)
+        self.step_button.pack(pady=5)
+        self.reset_button = tk.Button(control_frame, text="Сброс", command=self.reset)
+        self.reset_button.pack(pady=5)
+
+        self.setup_fuzzy_logic()
+        self.draw_tunnel()
+        self.update_info_display()
+        self.log_text.insert(tk.END, "Система управления вентиляцией туннеля запущена\n")
+
+    def create_initial_vehicles(self):
+        vehicle_data = [
+            (0, 1, "car", "blue"),
+            (0, 4, "truck", "red"),
+            (2, 2, "motorcycle", "green"),
+            (4, 3, "car", "blue"),
+            (6, 1, "truck", "red"),
+            (8, 4, "motorcycle", "green")
+        ]
+        for i, (x, y, vehicle_type, color) in enumerate(vehicle_data):
+            self.vehicles.append(Vehicle(f"V{i + 1}", x, y, color, vehicle_type))
+
+    def setup_fuzzy_logic(self):
+        self.vehicle_input = ctrl.Antecedent(np.arange(0, 31, 1), 'vehicle_count')
+        self.vehicle_input['low'] = fuzz.trimf(self.vehicle_input.universe, [0, 0, 5])
+        self.vehicle_input['medium'] = fuzz.trimf(self.vehicle_input.universe, [3, 8, 15])
+        self.vehicle_input['high'] = fuzz.trimf(self.vehicle_input.universe, [10, 20, 30])
+
+        self.quality_input = ctrl.Antecedent(np.arange(0, 101, 1), 'air_quality')
+        self.quality_input['poor'] = fuzz.trimf(self.quality_input.universe, [0, 0, 40])
+        self.quality_input['moderate'] = fuzz.trimf(self.quality_input.universe, [30, 50, 70])
+        self.quality_input['good'] = fuzz.trimf(self.quality_input.universe, [60, 100, 100])
+
+        self.fans_output = ctrl.Consequent(np.arange(0, 101, 1), 'fans_speed')
+        self.fans_output['low'] = fuzz.trimf(self.fans_output.universe, [0, 0, 30])
+        self.fans_output['medium'] = fuzz.trimf(self.fans_output.universe, [20, 50, 80])
+        self.fans_output['high'] = fuzz.trimf(self.fans_output.universe, [70, 100, 100])
+
+        rule1 = ctrl.Rule(self.vehicle_input['low'] & self.quality_input['good'], self.fans_output['low'])
+        rule2 = ctrl.Rule(self.vehicle_input['medium'] | self.quality_input['moderate'], self.fans_output['medium'])
+        rule3 = ctrl.Rule(self.vehicle_input['high'] | self.quality_input['poor'], self.fans_output['high'])
+
+        self.ventilation_ctrl = ctrl.ControlSystem([rule1, rule2, rule3])
+        self.ventilation_sim = ctrl.ControlSystemSimulation(self.ventilation_ctrl)
+
+    def draw_tunnel(self):
+        self.canvas.delete("all")
+
+        # Рисуем туннель
+        for i in range(TUNNEL_WIDTH):
+            for j in range(TUNNEL_HEIGHT):
+                color = "lightgray" if j in [0, TUNNEL_HEIGHT - 1] else "white"
+                if (i, j) in EXHAUST_ZONE:
+                    color = "brown"
+                self.canvas.create_rectangle(i * CELL_SIZE, j * CELL_SIZE,
+                                             (i + 1) * CELL_SIZE, (j + 1) * CELL_SIZE,
+                                             fill=color, outline="black")
+
+        # Подсчет плотности машин на клетке
+        density = {}
+        for v in self.vehicles:
+            key = (v.x, v.y)
+            density[key] = density.get(key, 0) + 1
+
+        # Рисуем транспортные средства с учетом плотности
+        for v in self.vehicles:
+            x0 = v.x * CELL_SIZE + 5
+            y0 = v.y * CELL_SIZE + 5
+            x1 = (v.x + 1) * CELL_SIZE - 5
+            y1 = (v.y + 1) * CELL_SIZE - 5
+            count = density[(v.x, v.y)]
+            intensity = min(255, 50 + count * 40)
+            color = v.color
+            self.canvas.create_rectangle(x0, y0, x1, y1, fill=color)
+            # Отображаем название машины и тип
+            vehicle_label = f"{v.name} ({v.vehicle_type[0].upper()})"
+            self.canvas.create_text(v.x * CELL_SIZE + CELL_SIZE // 2,
+                                    v.y * CELL_SIZE + CELL_SIZE // 2,
+                                    text=vehicle_label, fill="white", font=("Arial", 8))
+
+    def update_info_display(self):
+        self.info_label.config(text=f"Транспорт: {self.vehicle_count} | "
+                                    f"Качество воздуха: {self.air_quality:.0f}% | "
+                                    f"Скорость вентиляторов: {self.fans_speed:.0f}%")
+
+    def calculate_air_quality(self):
+        total_emissions = sum(v.emission_rate for v in self.vehicles)
+        pollution = total_emissions * 0.8
+        purification = self.fans_speed * 0.6
+        base_degradation = 2.5
+        if self.air_quality > 75:
+            degradation_factor = 1.5
+        elif self.air_quality < 50:
+            degradation_factor = 0.5
         else:
-            result[i] = 0
-            
-    return result
+            degradation_factor = 1.0
+        natural_degradation = base_degradation * degradation_factor
+        random_variation = random.uniform(-1.5, 1.5)
+        delta = purification - pollution - natural_degradation + random_variation
+        self.air_quality = max(0, min(100, self.air_quality + delta))
+        return self.air_quality
 
-def interp_membership(x, mf, val):
-    """Интерполяция степени принадлежности для заданного значения"""
-    idx = np.argmin(np.abs(x - val))
-    return mf[idx]
+    def apply_ventilation_rules(self, log_lines):
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT condition, action, priority FROM ventilation_rules ORDER BY priority DESC")
+        rules = c.fetchall()
+        conn.close()
 
-x = np.arange(0, 101, 1)
+        air_quality = self.air_quality
+        vehicle_count = self.vehicle_count
+        fans_speed = self.fans_speed
 
-# Нечеткие множества для производительности
-prod_low = trapmf(x, 0, 0, 20, 40)           # низкая
-prod_medium = trapmf(x, 30, 45, 55, 70)      # средняя
-prod_high = trapmf(x, 60, 75, 85, 95)        # высокая
-prod_excellent = trapmf(x, 85, 95, 100, 100) # отличная
+        rules_applied = []
+        for cond_text, action_text, priority in rules:
+            try:
+                if eval(cond_text):
+                    old_speed = fans_speed
+                    exec(action_text)
+                    if fans_speed != old_speed:
+                        rules_applied.append(f"Правило (приор.{priority})")
+                        log_lines.append(f"  {cond_text[:40]}... → скорость {old_speed:.0f}→{fans_speed:.0f}%")
+            except Exception as e:
+                log_lines.append(f"  Ошибка: {e}")
 
-# Нечеткие множества для профессиональных навыков
-skills_beginner = trapmf(x, 0, 0, 20, 40)        # начинающий
-skills_intermediate = trapmf(x, 30, 45, 55, 70)  # средний
-skills_experienced = trapmf(x, 60, 75, 85, 95)   # опытный
-skills_expert = trapmf(x, 85, 95, 100, 100)      # эксперт
+        self.fans_speed = fans_speed
+        if not rules_applied:
+            log_lines.append(f"  Правила не сработали, скорость: {self.fans_speed:.0f}%")
 
-# Ввод данных
-prod_val = float(input("Введите уровень производительности сотрудника (0-100): "))
-skills_val = float(input("Введите уровень профессиональных навыков (0-100): "))
+    def fuzzy_ventilation_control(self, log_lines):
+        try:
+            self.ventilation_sim.input['vehicle_count'] = self.vehicle_count
+            self.ventilation_sim.input['air_quality'] = self.air_quality
+            self.ventilation_sim.compute()
+            fuzzy_speed = self.ventilation_sim.output['fans_speed']
+            if self.vehicle_count > 5 or self.air_quality < 50:
+                if fuzzy_speed > self.fans_speed:
+                    self.fans_speed = min(100, self.fans_speed + (fuzzy_speed - self.fans_speed) * 0.3)
+            elif self.vehicle_count < 3 and self.air_quality > 70:
+                pass
+            else:
+                self.fans_speed = self.fans_speed * 0.8 + fuzzy_speed * 0.2
+            self.fans_speed = max(0, min(100, self.fans_speed))
+            log_lines.append(f"  Нечеткое управление: fuzzy={fuzzy_speed:.1f}%, итого={self.fans_speed:.1f}%")
+        except Exception as e:
+            log_lines.append(f"  Ошибка нечеткого управления: {e}")
 
-# Степень принадлежности для производительности
-prod_membership = max(
-    interp_membership(x, prod_low, prod_val),
-    interp_membership(x, prod_medium, prod_val),
-    interp_membership(x, prod_high, prod_val),
-    interp_membership(x, prod_excellent, prod_val),
-)
+    def move_vehicles(self, log_lines):
+        for vehicle in self.vehicles:
+            if vehicle.status == "moving":
+                if vehicle.x < TUNNEL_WIDTH - 1:
+                    vehicle.x += 1
+                else:
+                    vehicle.status = "exiting"
+        removed = len([v for v in self.vehicles if v.status == "exiting"])
+        if removed > 0:
+            log_lines.append(f"  {removed} транспортных средств покинуло туннель")
+        self.vehicles = [v for v in self.vehicles if v.status == "moving"]
+        self.vehicle_count = len(self.vehicles)
 
-# Степень принадлежности для навыков
-skills_membership = max(
-    interp_membership(x, skills_beginner, skills_val),
-    interp_membership(x, skills_intermediate, skills_val),
-    interp_membership(x, skills_experienced, skills_val),
-    interp_membership(x, skills_expert, skills_val),
-)
+    def spawn_vehicles(self, log_lines):
+        spawn_prob = 0.40
+        if random.random() < spawn_prob:
+            spawn_y = random.choice([1, 2, 3, 4])
+            vehicle_type = random.choice(["car", "truck", "motorcycle"])
+            if vehicle_type == "car":
+                color = "blue"
+            elif vehicle_type == "truck":
+                color = "red"
+            else:
+                color = "green"
+            new_vehicle = Vehicle(f"V{len(self.vehicles) + 1}", 0, spawn_y, color, vehicle_type)
+            self.vehicles.append(new_vehicle)
+            self.vehicle_count = len(self.vehicles)
+            log_lines.append(f"  Новое ТС въехало: {vehicle_type} ({color})")
 
-# Объединение множеств производительности
-union_prod = np.maximum(prod_low, prod_medium)
-union_prod = np.maximum(union_prod, prod_high)
-union_prod = np.maximum(union_prod, prod_excellent)
+    def step(self):
+        self.step_count += 1
+        log_lines = [f"--- Шаг {self.step_count} ---"]
 
-# Объединение множеств навыков
-union_skills = np.maximum(skills_beginner, skills_intermediate)
-union_skills = np.maximum(union_skills, skills_experienced)
-union_skills = np.maximum(union_skills, skills_expert)
+        old_fans_speed = self.fans_speed
+        self.spawn_vehicles(log_lines)
+        self.move_vehicles(log_lines)
+        old_quality = self.air_quality
+        self.calculate_air_quality()
+        log_lines.append(
+            f"До управления: ТС={self.vehicle_count}, возд={old_quality:.1f}%, вент={self.fans_speed:.1f}%")
+        self.apply_ventilation_rules(log_lines)
+        self.fuzzy_ventilation_control(log_lines)
+        speed_change = self.fans_speed - old_fans_speed
+        if abs(speed_change) > 0.1:
+            change_sign = "+" if speed_change > 0 else ""
+            log_lines.append(f"Изменение скорости: {change_sign}{speed_change:.1f}%")
+        quality_change = self.air_quality - old_quality
+        change_sign = "+" if quality_change > 0 else ""
+        log_lines.append(
+            f"ИТОГО: {self.vehicle_count} ТС, качество {self.air_quality:.1f}% ({change_sign}{quality_change:.1f}%), "
+            f"вентиляция {self.fans_speed:.1f}%")
 
-# Полное объединение
-union_all = np.maximum(union_prod, union_skills)
+        self.draw_tunnel()
+        self.update_info_display()
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.insert(tk.END, "\n".join(log_lines))
+        self.log_text.see(tk.END)
 
-print(f"Степень принадлежности для производительности: {prod_membership:.2f}")
-print(f"Степень принадлежности для навыков: {skills_membership:.2f}")
+    def reset(self):
+        self.vehicles = []
+        self.create_initial_vehicles()
+        self.air_quality = 45
+        self.fans_speed = 35
+        self.vehicle_count = len(self.vehicles)
+        self.step_count = 0
+        self.draw_tunnel()
+        self.update_info_display()
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.insert(tk.END, "Система сброшена\n")
 
-plt.figure(figsize=(17, 8))
 
-# Производительность
-plt.plot(x, prod_low, label="Производительность: низкая")
-plt.plot(x, prod_medium, label="Производительность: средняя")
-plt.plot(x, prod_high, label="Производительность: высокая")
-plt.plot(x, prod_excellent, label="Производительность: отличная")
-
-# Навыки
-plt.plot(x, skills_beginner, "--", label="Навыки: начинающий")
-plt.plot(x, skills_intermediate, "--", label="Навыки: средний")
-plt.plot(x, skills_experienced, "--", label="Навыки: опытный")
-plt.plot(x, skills_expert, "--", label="Навыки: эксперт")
-
-plt.plot(x, union_all, ":", label="Объединение множеств", linewidth=2, color="black")
-
-plt.title("Объединение нечетких множеств для оценки сотрудников")
-plt.xlabel("Уровень компетенции")
-plt.ylabel("Степень принадлежности")
-plt.legend()
-plt.grid()
-plt.show()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TunnelVentilationApp(root)
+    root.mainloop()
 ```
 
-Для тестовых данных, например производительность = 68, профессиональные навыки = 44, получаем следующие результаты:
+Тестирование симуляции:
 <p align="center">
   <img src="Screen_1.png" />
 </p>
 
 <p align="center">
   <img src="Screen_2.png" />
+</p>
+
+<p align="center">
+  <img src="Screen_3.png" />
 </p>
