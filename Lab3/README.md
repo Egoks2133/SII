@@ -317,12 +317,6 @@ class TunnelVentilationApp:
         self.update_info_display()
         self.log_text.delete(1.0, tk.END)
         self.log_text.insert(tk.END, "Система сброшена\n")
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = TunnelVentilationApp(root)
-    root.mainloop()
 ```
 
 Тестирование симуляции:
